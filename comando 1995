@@ -1,0 +1,183 @@
+CODEX — RÊMORA 1.996: CORRIGIR COLETA SEM PROGRESSO E RECUPERAÇÃO DO HISTÓRICO
+
+Implemente uma correção operacional no fonte atual, autocontido, da Rêmora Scalper Bands 1.996 com REMORA_VIDA. Não entregue apenas novos logs.
+
+Leia integralmente o fonte, identifique arquivo e commit, preserve o baseline e trabalhe em branch separada.
+
+PROBLEMA OBSERVADO
+
+Relatório de 18/11/2026:
+- WDO: 223 pulsos, zero análises, HISTORY_CATCHUP_PENDING.
+- WIN: 195 pulsos, zero análises.
+- WIN: inicialmente HISTORY_CATCHUP_PENDING; depois HISTORY_AUDIT_QUERY_FAILED.
+
+O recebimento de cotações está demonstrado. A conclusão das avaliações atuais não está.
+
+VULNERABILIDADE A CORRIGIR
+
+OMServiceStep() executa verificações antes da coleta. O orçamento de 10 ms pode ser consumido por OMVerifyBoundary(), OMVerifyRecent() ou auditorias, impedindo OMCollectUntil() de avançar.
+
+Foi reproduzido em ambiente sintético:
+- Leitura de verificação com latência de 11 ms.
+- Dados novos disponíveis.
+- Cursor sem avanço em sucessivos ciclos.
+- Mesmo conjunto de dados alcançando BANDS_READY com leitura rápida.
+
+Corrija esse mecanismo independentemente de ainda ser necessário confirmar sua participação exata no pregão.
+
+1. GARANTA PROGRESSO CONTROLADO
+
+Revise conjuntamente:
+OMServiceStep()
+OMVerifyBoundary()
+OMVerifyRecent()
+OMAuditStep()
+OMReadBounded()
+OMReadChunk()
+OMCollectUntil()
+OMFail()
+OMUpdateReadiness()
+OMGetClosed()
+OMLiveReady()
+
+Organize coleta e verificação em unidades finitas e retomáveis.
+
+Exigir:
+- Preservação do trabalho válido entre callbacks.
+- Ausência de repetição permanente das mesmas verificações sem oportunidade de coleta.
+- Separação entre auditoria periódica e auditoria bloqueante.
+- Agendamento que permita progresso quando os dados necessários forem íntegros e estiverem disponíveis.
+- Limites de chamadas, memória e registros por callback.
+- Preservação da prioridade das proteções financeiras.
+
+Não resolver apenas aumentando arbitrariamente o orçamento ou desligando auditorias.
+
+As consultas da API são síncronas. Não prometa interrompê-las aos 10 ms. Meça o tempo efetivo, limite chamadas e preserve o estado de retomada.
+
+Não criar threads, DLLs, outros EAs, timers adicionais ou dependências externas.
+
+2. CORRIJA A RETOMADA DAS AUDITORIAS
+
+Auditoria bloqueante continua impedindo a liberação de histórico não verificado.
+
+Após falha transitória:
+- Retentar o intervalo afetado com espera controlada.
+- Preservar somente progresso e provas ainda válidos.
+- Recomeçar a comparação quando necessário, sem duplicar acumulações.
+- Não reconstruir toda a sessão repetidamente sem causa.
+- Invalidar e reconstruir a parte afetada quando o histórico mudar.
+
+Não limpar estados de erro ou forçar BANDS_READY sem comprovação.
+
+3. TRATE AS CONSULTAS CORRETAMENTE
+
+Capture imediatamente, antes de outros logs ou chamadas:
+- Retorno da API.
+- GetLastError().
+- Intervalo solicitado.
+- Estado de sincronização.
+- Capacidade do buffer e quantidade retornada.
+- Duração da consulta.
+- Cursor e posição da auditoria.
+
+Diferencie:
+- Timeout e resposta parcial.
+- Buffer insuficiente.
+- Falha de alocação.
+- Símbolo não sincronizado.
+- Intervalo legitimamente vazio.
+
+Não admitir resposta parcial como histórico completo.
+
+Preserve:
+- Intervalos [início, fim exclusivo).
+- Consulta inclusiva até fim-1 em CopyTicksRange().
+- Ordem e multiplicidade dos negócios no mesmo milissegundo.
+- Divisão adaptativa dos blocos densos.
+- Ausência de duplicação ou descarte silencioso.
+
+4. PRESERVE A QUALIDADE DO VOLUME
+
+Verifique separadamente:
+- Disponibilidade dos negócios.
+- Validade do volume selecionado.
+- Classificação compradora/vendedora.
+- Volume desconhecido e cobertura.
+
+Não confundir histórico incompleto com falta de agressor identificado.
+
+Não trocar automaticamente volume_real por volume inteiro, nem inferir agressor pelo preço. Mantenha as regras existentes de validação da fonte.
+
+A recuperação da VWAP não autoriza declarar o fluxo agressor pronto quando seus dados continuam insuficientes.
+
+5. EVITE SINAIS RETROATIVOS
+
+Após catch-up ou replay:
+- Preserve as barreiras temporais de recuperação.
+- Libere somente avaliações atuais elegíveis.
+- Não arme oportunidades antigas como se fossem contemporâneas.
+- Não altere uma intenção financeira persistida.
+- Não reenvie requisições de resultado incerto.
+
+A recuperação analítica não pode modificar posições ou journals financeiros.
+
+6. PRESERVE A ESTRATÉGIA 1.996
+
+Não aplicar automaticamente a revisão estratégica solicitada para a 1.995.
+
+Nesta tarefa, preserve:
+- Fórmula da VWAP e sigma histórico.
+- B1/B2/B3 e multiplicadores das bandas.
+- Agressão, tendência, ABS/CONT e regiões de elegibilidade.
+- FAR e seus bloqueios.
+- Gatilhos, spread, overshoot e margens.
+- Sizing, stops, BE e proteção progressiva.
+- HEDGING/NETTING, reconciliação, limites e EOD.
+
+Não criar novos inputs nem alterar defaults estratégicos.
+
+7. COMPROVE O RESULTADO
+
+Preserve REMORA_VIDA e registre, com cadência limitada:
+- Alvo atual confiável.
+- Cursor e avanço desde a observação anterior.
+- Atraso real para o alvo.
+- Etapa do processamento.
+- Erro nativo e tempos de consulta.
+- Estado da auditoria e da prontidão.
+
+Não calcular o atraso usando apenas timestamps derivados do próprio cursor.
+
+Execute testes de:
+- Inicialização tardia.
+- Reinicialização após horas de mercado.
+- Latência superior ao orçamento antigo.
+- Chegada contínua de dados dentro da capacidade de processamento.
+- Timeout, resposta parcial e recuperação.
+- Intervalos densos e múltiplos negócios no mesmo milissegundo.
+- Reconexão e alteração tardia de histórico.
+- Falta real de volume/agressor.
+- Ausência de armamentos retroativos e duplicidade.
+
+Com dados íntegros, demonstre:
+histórico atualizado → bandas disponíveis → fluxo disponível → avaliação atual concluída.
+
+Inclua cenário sintético legítimo chegando ao ARMED e à simulação do envio, sem transmitir ordens reais.
+
+Com dados inválidos, demonstre que a operação continua impedida.
+
+8. ENTREGA
+
+Entregue:
+- .mq5 completo, autocontido e corrigido.
+- Diff contra o baseline.
+- Teste que falhava antes e passa depois.
+- Medições de avanço do cursor, atraso e tempo de processamento.
+- Evidência de preservação da matemática e do núcleo financeiro.
+- Testes realmente executados.
+- Resultado real de compilação no MetaEditor, quando disponível.
+- Limitações restantes.
+
+Diferencie correção reproduzida em teste de causa específica confirmada no pregão. Não declare o problema integralmente resolvido apenas porque o EA compila, inicia ou imprime um pulso.
+
+A entrega exige correção do mecanismo de disponibilidade, mantendo a exigência de dados íntegros e todas as proteções financeiras.
